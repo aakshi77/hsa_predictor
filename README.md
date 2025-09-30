@@ -6,8 +6,8 @@ This project is a full-stack web application designed to help users make informe
 
 ## Demo
 
-![Demo Screenshot](untitled.jpg)
-![Demo Screenshot](untitled1.jpg)
+![Demo Screenshot](Untitled.jpg)
+![Demo Screenshot](Untitled1.jpg)
 
 
 -----
