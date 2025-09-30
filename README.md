@@ -6,7 +6,9 @@ This project is a full-stack web application designed to help users make informe
 
 ## Demo
 
-*A screenshot of your final web application. This is the most important part of the README\!*
+![Demo Screenshot](untitled.jpg)
+![Demo Screenshot](untitled1.jpg)
+
 
 -----
 
