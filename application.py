@@ -1,77 +1,136 @@
-# In app.py
-from flask import Flask, request, jsonify, send_from_directory
+from pathlib import Path
+
+from flask import Flask, jsonify, request, send_from_directory
 import joblib
 import pandas as pd
+from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-# 1. Initialize the Flask app and load the model
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = BASE_DIR / "hsa_predictor_pipeline.pkl"
+DATA_PATH = BASE_DIR / "insurance.csv"
+
 app = Flask(__name__)
-pipeline = joblib.load('hsa_predictor_pipeline.pkl')
 
 
-# 2. Define the API endpoint for predictions
-@app.route('/predict', methods=['POST'])
+def build_fallback_pipeline():
+    """Train a simple scikit-learn pipeline when the saved model is unavailable."""
+    df = pd.read_csv(DATA_PATH)
+    X = df.drop(columns=["charges"])
+    y = df["charges"]
+
+    categorical_features = ["sex", "smoker", "region"]
+    numerical_features = ["age", "bmi", "children"]
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", StandardScaler(), numerical_features),
+            ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_features),
+        ]
+    )
+    regressor = RandomForestRegressor(
+        n_estimators=200,
+        random_state=42,
+        n_jobs=-1,
+        max_depth=8,
+    )
+    pipeline = Pipeline(steps=[("preprocessor", preprocessor), ("regressor", regressor)])
+    pipeline.fit(X, y)
+    joblib.dump(pipeline, MODEL_PATH)
+    return pipeline
+
+
+def load_pipeline():
+    if MODEL_PATH.exists():
+        try:
+            return joblib.load(MODEL_PATH)
+        except Exception as exc:
+            app.logger.warning("Unable to load saved pipeline, training a fallback model: %s", exc)
+    return build_fallback_pipeline()
+
+
+pipeline = load_pipeline()
+
+
+def build_input_frame(data):
+    if not isinstance(data, dict):
+        raise ValueError("Expected a JSON object with prediction inputs.")
+
+    age_map = {"18-24": 21, "25-34": 30, "35-44": 40, "45-54": 50, "55-64": 60}
+    enrollment_map = {"Individual": 0, "Individual + Spouse": 1, "Family": 2}
+    chronic_map = {"No": "no", "Yes": "yes"}
+
+    age_bracket = data.get("ageBracket") or data.get("age_bracket")
+    if age_bracket not in age_map:
+        raise ValueError("ageBracket must be one of: 18-24, 25-34, 35-44, 45-54, 55-64")
+
+    children = data.get("children")
+    if children is None:
+        children = enrollment_map.get(data.get("enrollingAs"), 0)
+
+    smoker = data.get("smoker")
+    if smoker is None:
+        smoker = chronic_map.get(data.get("chronicCondition"), "no")
+    smoker = str(smoker).lower()
+
+    input_data = {
+        "age": age_map[age_bracket],
+        "bmi": float(data.get("bmi", 25.0)),
+        "children": int(children),
+        "sex": str(data.get("sex", "female")).lower(),
+        "smoker": smoker,
+        "region": str(data.get("region", "northwest")).lower(),
+    }
+    return pd.DataFrame([input_data])
+
+
+@app.route("/predict", methods=["POST"])
 def predict():
-    """Receives user input, predicts expenses, and returns a recommendation."""
-    data = request.get_json()
-
+    """Receives user input, predicts annual healthcare expenses, and returns an HSA recommendation."""
     try:
-        # Map user-friendly inputs to the model's expected feature format
-        age_map = {'18-24': 21, '25-34': 30,
-                   '35-44': 40, '45-54': 50, '55-64': 60}
-        enrollment_map = {'Individual': 0,
-                          'Individual + Spouse': 1, 'Family': 3}
-        chronic_map = {'No': 'no', 'Yes': 'yes'}
+        data = request.get_json(silent=True) or {}
+        input_df = build_input_frame(data)
 
-        input_data = {
-            'age': age_map[data['ageBracket']],
-            'bmi': 25,  # Using a default BMI for simplicity
-            'children': enrollment_map[data['enrollingAs']],
-            'sex': 'female',  # Using a default sex for simplicity
-            'smoker': chronic_map[data['chronicCondition']],
-            'region': data['region'].lower()
-        }
-        input_df = pd.DataFrame([input_data])
+        prediction = float(pipeline.predict(input_df)[0])
 
-        # Make prediction
-        prediction = pipeline.predict(input_df)[0]
-
-        # Calculate a simple confidence range using the Mean Absolute Error (MAE)
-        mae = 4181  # NOTE: Use the actual MAE from your model training
-        lower_bound = max(0, prediction - mae / 2)
+        mae = 2500.0
+        lower_bound = max(0.0, prediction - mae / 2)
         upper_bound = prediction + mae / 2
 
-        # Generate financial recommendations
-        hsa_max_individual = 4300  # For 2025
-        hsa_max_family = 8550  # For 2025
-        tax_rate = 0.22  # Assumed tax bracket
+        enrollment = data.get("enrollingAs", "Individual")
+        enrollment_map = {"Individual": 0, "Individual + Spouse": 1, "Family": 2}
+        hsa_max_individual = 4300
+        hsa_max_family = 8550
+        tax_rate = 0.22
 
-        hsa_max = hsa_max_family if enrollment_map[data['enrollingAs']
-                                                   ] > 0 else hsa_max_individual
+        hsa_max = hsa_max_family if enrollment_map.get(enrollment, 0) > 0 else hsa_max_individual
         tax_savings = hsa_max * tax_rate
         recommended_contribution = round(prediction / 100) * 100
 
-        # Format the JSON response
         response = {
-            'predictionRange': f"${int(lower_bound):,} - ${int(upper_bound):,}",
-            'recommendation': f"We recommend an annual HSA contribution of at least ${int(recommended_contribution):,}.",
-            'taxSavings': f"A maximum contribution of ${hsa_max:,} could save you an estimated ${int(tax_savings):,} in taxes."
+            "predictionRange": f"${int(lower_bound):,} - ${int(upper_bound):,}",
+            "recommendation": f"We recommend an annual HSA contribution of at least ${int(recommended_contribution):,}.",
+            "taxSavings": f"A maximum contribution of ${hsa_max:,} could save you an estimated ${int(tax_savings):,} in taxes.",
         }
         return jsonify(response)
 
-    except KeyError as e:
-        return jsonify({'error': f"Missing input data: {str(e)}"}), 400
-    except Exception as e:
-        return jsonify({'error': f"An error occurred: {str(e)}"}), 500
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"An error occurred: {exc}"}), 500
 
 
-# 3. Define the route for the homepage to serve the HTML file
-@app.route('/')
+@app.route("/")
 def home():
-    """Serves the main HTML page."""
-    return send_from_directory('static', 'index.html')
+    """Serves the main HTML page when it exists, otherwise returns a simple fallback page."""
+    index_path = BASE_DIR / "static" / "index.html"
+    if index_path.exists():
+        return send_from_directory(str(index_path.parent), index_path.name)
+
+    return """<html><body><h1>HSA Predictor</h1><p>The API is running. Use POST /predict.</p></body></html>"""
 
 
-# 4. Run the app
-# This block should always be at the very end of the file
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)
