@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>HSA Predictor</title>
+    <link rel="stylesheet" href="/static/style.css">
+  </head>
+  <body>
+    <main>
+      <h1>HSA Contribution Predictor</h1>
+      <form id="predict-form">
+        <label>Age Bracket
+          <select name="ageBracket">
+            <option>18-24</option>
+            <option selected>25-34</option>
+            <option>35-44</option>
+            <option>45-54</option>
+            <option>55-64</option>
+          </select>
+        </label>
+
+        <label>Enrolling As
+          <select name="enrollingAs">
+            <option>Individual</option>
+            <option>Individual + Spouse</option>
+            <option>Family</option>
+          </select>
+        </label>
+
+        <label>Chronic Condition?
+          <select name="chronicCondition">
+            <option>No</option>
+            <option>Yes</option>
+          </select>
+        </label>
+
+        <label>Region
+          <select name="region">
+            <option>southwest</option>
+            <option>southeast</option>
+            <option>northwest</option>
+            <option>northeast</option>
+          </select>
+        </label>
+
+        <label>Sex
+          <select name="sex">
+            <option value="female" selected>Female</option>
+            <option value="male">Male</option>
+          </select>
+        </label>
+
+        <label>BMI
+          <input type="number" name="bmi" value="25" step="0.1" />
+        </label>
+
+        <label>Children
+          <input type="number" name="children" value="0" min="0" />
+        </label>
+
+        <button type="submit">Predict</button>
+      </form>
+
+      <section id="result" aria-live="polite">
+        <h2>Result</h2>
+        <pre id="output">No prediction yet.</pre>
+      </section>
+    </main>
+
+    <script src="/static/script.js"></script>
+  </body>
+</html>

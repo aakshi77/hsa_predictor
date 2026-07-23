@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestRegressor
+import xgboost as xgb
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
@@ -29,10 +29,13 @@ preprocessor = ColumnTransformer(
     ]
 )
 
-model = RandomForestRegressor(
+model = xgb.XGBRegressor(
+    objective='reg:squarederror',
     n_estimators=200,
-    max_depth=8,
+    learning_rate=0.05,
+    max_depth=4,
     random_state=42,
+    verbosity=0,
     n_jobs=-1,
 )
 
